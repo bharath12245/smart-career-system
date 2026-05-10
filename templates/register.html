@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="glass p-5 animate-up">
+                <div class="text-center mb-5">
+                    <h2 class="fw-bold">Create Your <span class="text-primary">Profile</span></h2>
+                    <p class="text-secondary">Enter your details to get personalized career recommendations.</p>
+                </div>
+                <form action="{{ url_for('register') }}" method="POST">
+                    <div class="mb-4">
+                        <label class="form-label text-secondary">Full Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="John Doe" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label text-secondary">Email Address</label>
+                        <input type="email" name="email" class="form-control" placeholder="john@example.com" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label text-secondary">Skills (Comma separated)</label>
+                        <textarea name="skills" class="form-control" rows="3" placeholder="Python, HTML, CSS, React..." required></textarea>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label text-secondary">Interests</label>
+                        <input type="text" name="interests" class="form-control" placeholder="AI, Web Development, Design..." required>
+                    </div>
+                    <button type="submit" class="btn btn-primary-custom w-100 py-3 mt-3">Get Recommendations</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
