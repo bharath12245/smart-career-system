@@ -1,7 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from database import execute_query
 from recommendation_engine import get_recommendations
-import os
+import os, csv, io
 from dotenv import load_dotenv
 import google.generativeai as genai
 
@@ -11,37 +11,32 @@ app = Flask(__name__)
 app.secret_key = 'smart_career_secret_key'
 
 print("\n" + "="*40)
-print("🚀 SMART CAREER SYSTEM: FINAL QUALITY PASS")
+print("🚀 SMART CAREER SYSTEM: ADMIN PRO MODE")
 print("="*40)
 
 # Startup AI Test
 def test_gemini():
     api_key = os.getenv("SMART_CAREER_GEMINI_KEY")
-    if not api_key:
-        print("❌ ERROR: SMART_CAREER_GEMINI_KEY NOT FOUND")
-        return
+    if not api_key: return
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
         model.generate_content("test")
         print("✅ SUCCESS: GEMINI AI READY")
-    except Exception as e:
-        print(f"❌ ERROR: GEMINI AI FAILED: {e}")
+    except Exception as e: print(f"❌ AI FAILED: {e}")
 
 test_gemini()
 
 # Helper for AI Roadmaps
 def get_ai_roadmap(career_name, user_skills, required_skills):
     api_key = os.getenv("SMART_CAREER_GEMINI_KEY")
-    if not api_key: return None
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"Mentor student to become '{career_name}'. Skills: {user_skills}. Requirements: {required_skills}. 3-step roadmap."
-        response = model.generate_content(prompt)
-        return response.text
+        return model.generate_content(prompt).text
     except Exception:
-        return f"Step 1: Master {career_name} basics.\nStep 2: Build projects with {required_skills}.\nStep 3: Network in the field."
+        return "Step 1: Master basics.\nStep 2: Build projects.\nStep 3: Network."
 
 # --- Middleware ---
 @app.context_processor
@@ -58,38 +53,15 @@ def index():
 def register():
     if request.method == 'POST':
         try:
-            name = request.form.get('name')
-            email = request.form.get('email')
-            password = request.form.get('password')
-            skills_raw = request.form.get('skills', '')
-            interests = request.form.get('interests', '')
-            
-            # Split comma-separated skills into a list
+            name, email, password = request.form.get('name'), request.form.get('email'), request.form.get('password')
+            skills_raw, interests = request.form.get('skills', ''), request.form.get('interests', '')
             skills = [s.strip() for s in skills_raw.split(',') if s.strip()]
-            
-            execute_query("INSERT INTO users (name, email, password, interests) VALUES (?, ?, ?, ?)", 
-                          (name, email, password, interests))
-            
-            user_data = execute_query("SELECT user_id FROM users WHERE email = ?", (email,), fetch=True)
-            if not user_data:
-                flash("Could not create user. Please try a different email.")
-                return redirect(url_for('register'))
-            
-            user = user_data[0]
-            
-            for skill in skills:
-                execute_query("INSERT INTO user_skills (user_id, skill_name) VALUES (?, ?)", (user['user_id'], skill))
-            
-            session.update({
-                'user_id': user['user_id'], 
-                'user_name': name, 
-                'user_skills': skills, 
-                'user_interests': interests
-            })
+            execute_query("INSERT INTO users (name, email, password, interests) VALUES (?, ?, ?, ?)", (name, email, password, interests))
+            user = execute_query("SELECT user_id FROM users WHERE email = ?", (email,), fetch=True)[0]
+            for skill in skills: execute_query("INSERT INTO user_skills (user_id, skill_name) VALUES (?, ?)", (user['user_id'], skill))
+            session.update({'user_id': user['user_id'], 'user_name': name, 'user_skills': skills, 'user_interests': interests})
             return redirect(url_for('results'))
-        except Exception as e:
-            flash(f"Error during registration: {e}")
-            return redirect(url_for('register'))
+        except Exception as e: flash(f"Error: {e}"); return redirect(url_for('register'))
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -104,7 +76,6 @@ def login():
         flash("Invalid credentials")
     return render_template('login.html')
 
-@app.route('/recommendations')
 @app.route('/results')
 def results():
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -136,13 +107,11 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# --- Admin Routes (To match layout.html) ---
+# --- Admin Pro Routes ---
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        if email == 'admin@career.com' and password == 'admin123':
+        if request.form.get('email') == 'admin@career.com' and request.form.get('password') == 'admin123':
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         flash("Admin access denied")
@@ -162,13 +131,63 @@ def admin_dashboard():
 def manage_users():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     users = execute_query("SELECT * FROM users", fetch=True)
-    return render_template('admin/users.html', users=users)
+    # Get skills for each user
+    final_users = []
+    for u in users:
+        u_dict = dict(u)
+        skills = execute_query("SELECT skill_name FROM user_skills WHERE user_id = ?", (u['user_id'],), fetch=True)
+        u_dict['skills'] = ", ".join([s['skill_name'] for s in skills])
+        u_dict['id'] = u['user_id'] # Match template ID
+        final_users.append(u_dict)
+    return render_template('admin/users.html', users=final_users)
+
+@app.route('/admin/users/delete/<int:user_id>')
+def delete_user(user_id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    execute_query("DELETE FROM users WHERE user_id = ?", (user_id,))
+    flash("User deleted successfully")
+    return redirect(url_for('manage_users'))
+
+@app.route('/admin/users/export')
+def export_users():
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    users = execute_query("SELECT * FROM users", fetch=True)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['ID', 'Name', 'Email', 'Interests', 'Joined'])
+    for u in users: writer.writerow([u['user_id'], u['name'], u['email'], u['interests'], u['created_at']])
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=users_export.csv"})
 
 @app.route('/admin/careers')
 def manage_careers():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     careers = execute_query("SELECT * FROM careers", fetch=True)
     return render_template('admin/manage_careers.html', careers=careers)
+
+@app.route('/admin/careers/add', methods=['POST'])
+def add_career():
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    f = request.form
+    execute_query("INSERT INTO careers (career_name, required_skills, salary, future_scope, companies_hiring, description) VALUES (?,?,?,?,?,?)",
+                  (f['career_name'], f['required_skills'], f['salary'], f['future_scope'], f['companies_hiring'], f['description']))
+    flash("Career added!")
+    return redirect(url_for('manage_careers'))
+
+@app.route('/admin/careers/edit/<int:career_id>', methods=['POST'])
+def edit_career(career_id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    f = request.form
+    execute_query("UPDATE careers SET career_name=?, required_skills=?, salary=?, future_scope=?, companies_hiring=?, description=? WHERE career_id=?",
+                  (f['career_name'], f['required_skills'], f['salary'], f['future_scope'], f['companies_hiring'], f['description'], career_id))
+    flash("Career updated!")
+    return redirect(url_for('manage_careers'))
+
+@app.route('/admin/careers/delete/<int:career_id>')
+def delete_career(career_id):
+    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    execute_query("DELETE FROM careers WHERE career_id = ?", (career_id,))
+    flash("Career deleted!")
+    return redirect(url_for('manage_careers'))
 
 if __name__ == '__main__':
     app.run(debug=True)
