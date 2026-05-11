@@ -140,7 +140,9 @@ def logout():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if request.form['email'] == 'admin@career.com' and request.form['password'] == 'admin123':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        if email == 'admin@career.com' and password == 'admin123':
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         flash("Admin access denied")
