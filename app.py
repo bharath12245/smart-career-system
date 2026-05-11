@@ -57,15 +57,34 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        name, email, password = request.form['name'], request.form['email'], request.form['password']
-        skills, interests = request.form.getlist('skills'), request.form['interests']
         try:
-            execute_query("INSERT INTO users (name, email, password, interests) VALUES (?, ?, ?, ?)", (name, email, password, interests))
+            name = request.form.get('name')
+            email = request.form.get('email')
+            password = request.form.get('password')
+            skills_raw = request.form.get('skills', '')
+            interests = request.form.get('interests', '')
+            
+            # Split comma-separated skills into a list
+            skills = [s.strip() for s in skills_raw.split(',') if s.strip()]
+            
+            execute_query("INSERT INTO users (name, email, password, interests) VALUES (?, ?, ?, ?)", 
+                          (name, email, password, interests))
+            
             user = execute_query("SELECT user_id FROM users WHERE email = ?", (email,), fetch=True)[0]
-            for skill in skills: execute_query("INSERT INTO user_skills (user_id, skill_name) VALUES (?, ?)", (user['user_id'], skill))
-            session.update({'user_id': user['user_id'], 'user_name': name, 'user_skills': skills, 'user_interests': interests})
+            
+            for skill in skills:
+                execute_query("INSERT INTO user_skills (user_id, skill_name) VALUES (?, ?)", (user['user_id'], skill))
+            
+            session.update({
+                'user_id': user['user_id'], 
+                'user_name': name, 
+                'user_skills': skills, 
+                'user_interests': interests
+            })
             return redirect(url_for('results'))
-        except Exception as e: flash(f"Error: {e}"); return redirect(url_for('register'))
+        except Exception as e:
+            flash(f"Error during registration: {e}")
+            return redirect(url_for('register'))
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
