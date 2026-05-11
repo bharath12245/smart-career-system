@@ -70,7 +70,12 @@ def register():
             execute_query("INSERT INTO users (name, email, password, interests) VALUES (?, ?, ?, ?)", 
                           (name, email, password, interests))
             
-            user = execute_query("SELECT user_id FROM users WHERE email = ?", (email,), fetch=True)[0]
+            user_data = execute_query("SELECT user_id FROM users WHERE email = ?", (email,), fetch=True)
+            if not user_data:
+                flash("Could not create user. Please try a different email.")
+                return redirect(url_for('register'))
+            
+            user = user_data[0]
             
             for skill in skills:
                 execute_query("INSERT INTO user_skills (user_id, skill_name) VALUES (?, ?)", (user['user_id'], skill))

@@ -25,6 +25,6 @@ def execute_query(query, params=None, fetch=False):
         return result
     except Exception as e:
         print(f"Database Error: {e}")
-        return None
+        return [] if fetch else None
     finally:
         conn.close()
