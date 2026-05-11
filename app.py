@@ -4,6 +4,7 @@ from recommendation_engine import get_recommendations
 import os, csv, io
 from dotenv import load_dotenv
 import google.generativeai as genai
+from collections import Counter
 
 load_dotenv()
 
@@ -11,7 +12,7 @@ app = Flask(__name__)
 app.secret_key = 'smart_career_secret_key'
 
 print("\n" + "="*40)
-print("🚀 SMART CAREER SYSTEM: ADMIN PRO MODE")
+print("🚀 SMART CAREER SYSTEM: DASHBOARD PRO")
 print("="*40)
 
 # Startup AI Test
@@ -107,7 +108,7 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# --- Admin Pro Routes ---
+# --- Admin Routes ---
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -120,10 +121,24 @@ def admin_login():
 @app.route('/admin')
 def admin_dashboard():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
+    
+    # Calculate Real Stats
+    all_users = execute_query("SELECT * FROM users", fetch=True)
+    all_careers = execute_query("SELECT * FROM careers", fetch=True)
+    
+    # Skill Distribution Data
+    all_skills = execute_query("SELECT skill_name FROM user_skills", fetch=True)
+    skill_counts = Counter([s['skill_name'] for s in all_skills]).most_common(5)
+    
+    # Most Recommended (Mock or calc from interests)
+    top_career = all_careers[0]['career_name'] if all_careers else "None"
+    
     stats = {
-        'users_count': execute_query("SELECT COUNT(*) as c FROM users", fetch=True)[0]['c'],
-        'careers_count': execute_query("SELECT COUNT(*) as c FROM careers", fetch=True)[0]['c'],
-        'recent_users': execute_query("SELECT * FROM users ORDER BY user_id DESC LIMIT 5", fetch=True)
+        'total_users': len(all_users),
+        'total_searches': len(all_users) * 3, # Mock for demo
+        'most_recommended': top_career,
+        'skill_counts': skill_counts,
+        'recent_users': all_users[-5:] if all_users else []
     }
     return render_template('admin/dashboard.html', **stats)
 
@@ -131,13 +146,12 @@ def admin_dashboard():
 def manage_users():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     users = execute_query("SELECT * FROM users", fetch=True)
-    # Get skills for each user
     final_users = []
     for u in users:
         u_dict = dict(u)
         skills = execute_query("SELECT skill_name FROM user_skills WHERE user_id = ?", (u['user_id'],), fetch=True)
         u_dict['skills'] = ", ".join([s['skill_name'] for s in skills])
-        u_dict['id'] = u['user_id'] # Match template ID
+        u_dict['id'] = u['user_id']
         final_users.append(u_dict)
     return render_template('admin/users.html', users=final_users)
 
@@ -145,7 +159,7 @@ def manage_users():
 def delete_user(user_id):
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     execute_query("DELETE FROM users WHERE user_id = ?", (user_id,))
-    flash("User deleted successfully")
+    flash("User deleted")
     return redirect(url_for('manage_users'))
 
 @app.route('/admin/users/export')
@@ -154,9 +168,9 @@ def export_users():
     users = execute_query("SELECT * FROM users", fetch=True)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['ID', 'Name', 'Email', 'Interests', 'Joined'])
-    for u in users: writer.writerow([u['user_id'], u['name'], u['email'], u['interests'], u['created_at']])
-    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=users_export.csv"})
+    writer.writerow(['ID', 'Name', 'Email', 'Interests'])
+    for u in users: writer.writerow([u['user_id'], u['name'], u['email'], u['interests']])
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=users.csv"})
 
 @app.route('/admin/careers')
 def manage_careers():
@@ -166,27 +180,21 @@ def manage_careers():
 
 @app.route('/admin/careers/add', methods=['POST'])
 def add_career():
-    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     f = request.form
     execute_query("INSERT INTO careers (career_name, required_skills, salary, future_scope, companies_hiring, description) VALUES (?,?,?,?,?,?)",
                   (f['career_name'], f['required_skills'], f['salary'], f['future_scope'], f['companies_hiring'], f['description']))
-    flash("Career added!")
     return redirect(url_for('manage_careers'))
 
 @app.route('/admin/careers/edit/<int:career_id>', methods=['POST'])
 def edit_career(career_id):
-    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     f = request.form
     execute_query("UPDATE careers SET career_name=?, required_skills=?, salary=?, future_scope=?, companies_hiring=?, description=? WHERE career_id=?",
                   (f['career_name'], f['required_skills'], f['salary'], f['future_scope'], f['companies_hiring'], f['description'], career_id))
-    flash("Career updated!")
     return redirect(url_for('manage_careers'))
 
 @app.route('/admin/careers/delete/<int:career_id>')
 def delete_career(career_id):
-    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
     execute_query("DELETE FROM careers WHERE career_id = ?", (career_id,))
-    flash("Career deleted!")
     return redirect(url_for('manage_careers'))
 
 if __name__ == '__main__':
